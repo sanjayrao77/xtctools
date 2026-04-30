@@ -37,9 +37,6 @@ But, they're fast enough to be sufferable on a Raspberry Pi 4. Converting the lo
 to capture 3500 ereader-pages to storage and another 8 hours to convert them to xtch. A real computer could do it quicker, but
 the python code is really inefficient.
 
-
-#### started at 1:23
-
 I suggest starting by converting a short story or a single chapter and seeing how everything works.
 
 These tools are also mostly untested. Doing anything with them may take some debugging. I've only used them
