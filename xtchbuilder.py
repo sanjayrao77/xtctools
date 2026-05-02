@@ -808,7 +808,7 @@ class Page():
 		if self.isblank:
 			if not region.isblank(pgm): self.isblank=False
 	def drawstatus(self,pgm,height):
-		if self.position_chapter==None:
+		if not self.pagecount_chapter:
 			w=int((self.position_book*pgm.width)/self.pagecount_book)
 			row=(b'\x00'*w)+(b'\xff'*(pgm.width-w))
 		else:
