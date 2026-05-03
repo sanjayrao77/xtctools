@@ -454,8 +454,9 @@ class Application(tk.Frame):
 		self.listbox.bind('<<ListboxSelect>>',self.event_chapterselect)
 		scrollbar.config(command=self.listbox.yview)
 		frame.pack(fill='x',padx=(10,0))
-		for i,ch in enumerate(self.x.chapters.entries):
-			self.listbox.insert(tk.END,'%s: %s'%(i+1,ch.chaptername[:40]))
+		if self.x.chapters:
+			for i,ch in enumerate(self.x.chapters.entries):
+				self.listbox.insert(tk.END,'%s: %s'%(i+1,ch.chaptername[:40]))
 
 		self.left.pack(side='left',fill='y')
 
