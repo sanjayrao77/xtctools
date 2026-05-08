@@ -2,7 +2,7 @@
 
 ## Overview
 
-This tools lets you send files to your XTEINK X3 (or X4) over wifi.
+This tool lets you send files to your XTEINK X3 (or X4) over wifi.
 
 Upload progress is printed to the console, allowing you to see how long it will take.
 
@@ -15,24 +15,23 @@ Once in the correct device mode, you can use this xteuploader.py tool.
 
 You should be able to download xteuploader.py directly from here.
 
-This requires Python, version 3, but has no unusual python requirements.
+This requires Python version 3, but has no unusual python requirements.
 
 ## Quick start
 
-Place your XTEINK X3 or X4 in the correct mode by selecting "Sync/APP" from the
+First, download xteuploader.py from here. Try running it. If Python 3 is installed
+and working, xteuploader.py should ask for an IP address for the device.
+
+Now, place your XTEINK X3 or X4 in the correct mode by selecting "Sync/APP" from the
 home screen, then selecting "Upload from Network (PC)" from the menu. You may need
 to enter wifi credentials first.
 
-Now, download xteuploader.py from here.
-
-You should be able to run "xteuploader.py" if you have Python 3 installed.
-
-The program will ask for a hostname. You can take this hostname from your
+xteuploader.py was asking for an IP address. You can take this address from your
 device's screen. At the bottom of the screen should be a message like "4. For
 file management, open 192.168.1.214 in a web browser". In the example, the
 program wants "192.168.1.214."
 
-After entering a hostname (or IP address), xteuploader.py will list the contents
+After entering the IP address (or hostname), xteuploader.py will list the contents
 of the top directory and print usage information.
 
 ## Directory listing
