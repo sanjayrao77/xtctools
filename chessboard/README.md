@@ -26,7 +26,7 @@ chessboard.py --x3 --landscape "4k3/p2q1p2/1pQp2rp/6p1/1B6/3n4/PP3PPP/2R3K1 w - 
 chessboard.py --x4 --landscape "4k3/p2q1p2/1pQp2rp/6p1/1B6/3n4/PP3PPP/2R3K1 w - -" chess.x4.xth
 ```
 
-This should create a chess.xth file suitable for the XTEINK X3 and X4.
+This should create an xth file suitable for the XTEINK X3 and X4.
 
 Note: I've only tested this on an X3. The X4 output may need to be fixed.
 
