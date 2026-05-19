@@ -237,7 +237,7 @@ class Xth(ImageXtc):
 		cilimit=height>>3
 		x=0
 		rx=width-1
-		colors=(255,83,166,0)
+		colors=(255,85,170,0)
 		while True:
 			col1=self.plane1[rx]
 			col2=self.plane2[rx]
@@ -264,7 +264,7 @@ class Xth(ImageXtc):
 		width=self.width
 		height=self.height
 		if height&7: raise ValueError
-		colors=(255,83,166,0)
+		colors=(255,85,170,0)
 		colnum=0
 		rownumlimit=height>>3
 		width8=width*8
