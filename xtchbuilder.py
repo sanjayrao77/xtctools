@@ -18,6 +18,7 @@
 #  * along with this program; if not, write to the Free Software
 #  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
+import base64
 import json
 import os
 import struct
@@ -65,7 +66,7 @@ class PGM():
 		return bytes(ba)
 	def clone(self):
 		pgm=PGM(self.width,self.height,[])
-		for row in self.rows: pgm.rows.append(bytearray(row))
+		pgm.rows.extend(self.rows)
 		return pgm
 	def counter_rotate(self):
 		outrows=[]
@@ -80,7 +81,6 @@ class PGM():
 			r.reverse()
 			self.rows[i]=r
 		self.rows.reverse()
-		
 
 class PPM():
 	def fromp5(filename):
@@ -132,7 +132,6 @@ class PPM():
 	def left_crop(self,x,thickness):
 		if x<=0: return
 		if x>=self.width-1: return
-
 		x1=x-thickness
 		if x1<0: x1=0
 		red=b'\xff\x00\x00'*(x-x1)
@@ -142,7 +141,6 @@ class PPM():
 	def right_crop(self,x,thickness):
 		if x<=0: return
 		if x>=self.width-1: return
-
 		x=self.width-x
 		x1=x+thickness
 		if x1>self.width: x1=self.width
@@ -181,15 +179,23 @@ class PNG():
 		(self.width,self.height,bits,colortype,u1,u2,u3)=struct.unpack('>2I5B',value)
 		if bits!=8: raise ValueError('Unsupport PNG format')
 		if colortype: raise ValueError('Unsupported PNG format')
+		swp1=self.width+1
+		stride=self.width*3
 		while tail:
 			(key,value,tail)=PNG.parsechunk(tail)
 			if key==b'IDAT':
-				while value:
-					if value[0]!=0: raise ValueError('Unsupported PNG compression')
-					row=bytearray()
-					for c in value[1:1+self.width]: row.extend((c,c,c))
+				off=0
+				for i in range(self.height):
+					if value[off]!=0: raise ValueError('Unsupported PNG compression')
+					row=bytearray(stride)
+					cursor=0
+					for off in range(off+1,off+swp1):
+						v=value[off]
+						row[cursor]=v ; cursor+=1
+						row[cursor]=v ; cursor+=1
+						row[cursor]=v ; cursor+=1
+					off+=1
 					self.rows.append(row)
-					value=value[1+self.width:]
 		return PPM(self.width,self.height,self.rows)
 	def topgm(self):
 		f=open(self.filename,'rb')
@@ -201,13 +207,16 @@ class PNG():
 		if bits!=8: raise ValueError('Unsupport PNG format')
 		if colortype: raise ValueError('Unsupported PNG format')
 		rows=[]
+		swp1=self.width+1
 		while tail:
 			(key,value,tail)=PNG.parsechunk(tail)
 			if key==b'IDAT':
-				while value:
-					if value[0]!=0: raise ValueError('Unsupported PNG compression')
-					rows.append(value[1:1+self.width])
-					value=value[1+self.width:]
+				mv=memoryview(value)
+				off=0
+				for _ in range(self.height):
+					if mv[off]!=0: raise ValueError('Unsupported PNG compression')
+					rows.append(mv[off+1:off+swp1])
+					off+=swp1
 		return PGM(self.width,self.height,rows)
 
 class Cap():
@@ -293,8 +302,10 @@ class Cap():
 		else:
 			pgm.width-=hcrop
 		for i,r in enumerate(pgm.rows):
-			pgm.rows[i]=r[leftcrop:]
-			if rightcrop: pgm.rows[i]=pgm.rows[i][:-rightcrop]
+			if rightcrop:
+				pgm.rows[i]=r[leftcrop:-rightcrop]
+			else:
+				pgm.rows[i]=r[leftcrop:]
 		return (pgm,topcrop,bottomcrop,leftcrop,rightcrop)
 
 class CapDefaults():
@@ -358,6 +369,8 @@ class Caps():
 	def getfirstcap(self):
 		self.loadbyindex()
 		return self.byindex[self.sorted_byindex[0]]
+	def getlastcap(self):
+		return self.byindex[self.sorted_byindex[-1]]
 	def getnextcap(self,cap): return cap.next
 	def getpreviouscap(self,cap): return cap.previous
 	def findnearest(self,idx):
@@ -415,14 +428,20 @@ class CapView():
 			cap=self.app.caps.findnearest(val)
 			self.jumptocap(cap)
 		return True
-	def nextcap(self):
-		nextcap=self.app.caps.getnextcap(self.cap)
-		if not nextcap: return
-		self.jumptocap(nextcap)
+	def firstcap(self):
+		cap=self.app.caps.getfirstcap()
+		self.jumptocap(cap)
 	def previouscap(self):
 		prevcap=self.app.caps.getpreviouscap(self.cap)
 		if not prevcap: return
 		self.jumptocap(prevcap)
+	def nextcap(self):
+		nextcap=self.app.caps.getnextcap(self.cap)
+		if not nextcap: return
+		self.jumptocap(nextcap)
+	def lastcap(self):
+		cap=self.app.caps.getlastcap()
+		self.jumptocap(cap)
 	def onclick(self,ev):
 		if self.step6:
 			step=self.step6
@@ -436,6 +455,8 @@ class CapView():
 
 		frame=tk.Frame(master,bg='white')
 		frame2=tk.Frame(frame,bg='white')
+		button=tk.Button(frame2,text='|<',bg='white',command=self.firstcap)
+		button.pack(side='left')
 		button=tk.Button(frame2,text='<',bg='white',command=self.previouscap)
 		button.pack(side='left')
 		rusercap=master.register(self.usercap)
@@ -443,6 +464,8 @@ class CapView():
 		entry.pack(side='left')
 		entry.bind('<Return>',lambda _: self.usercap('return'))
 		button=tk.Button(frame2,text='>',bg='white',command=self.nextcap)
+		button.pack(side='left')
+		button=tk.Button(frame2,text='>|',bg='white',command=self.lastcap)
 		button.pack(side='left')
 		frame2.pack()
 		frame.pack(fill='x')
@@ -455,28 +478,27 @@ class CapView():
 
 		self.redrawcap()
 
-class ChapterPlus():
-	def __init__(self,chapter,page): (self.chapter,self.page)=(chapter,page)
-
 class Chapter():
 	def __init__(self,text,cap,offset):
 		(self.text,self.cap,self.offset)=(text,cap,offset)
 		self.uid=-1
-	def findpage(self,pagesbycap):
-		if self.cap.index not in pagesbycap: raise ValueError('Couldn\'t find page for chapter "%s". Blank page (%s:%s)?'%(self.text,self.cap.index,self.offset))
-		a=pagesbycap[self.cap.index]
+		self.page=None
+	def resetforbuild(self): self.page=None
+	def findregion(self,regionsbycap):
+		if self.cap.index not in regionsbycap: raise ValueError('Couldn\'t find region for chapter "%s". Missing region for (%s:%s)?'%(self.text,self.cap.index,self.offset))
+		a=regionsbycap[self.cap.index]
 		if len(a)==1: return a[0]
-		for p in a:
-			for r in p.regions:
-				if r.resizecap.cap.index!=self.cap.index: continue
-				if r.hasoriginaloffset(self.offset): return p
-		raise ValueError('Couldn\t find page for chapter "%s". Blank page (%s:%s)?'%(self.text,self.cap.index,self.offset))
+		for r in a:
+			if r.hasoriginaloffset(self.offset): return r
+		raise ValueError('Couldn\t find region for chapter "%s". Missing region for (%s:%s)?'%(self.text,self.cap.index,self.offset))
 
 class Chapters():
 	def __init__(self):
 		self.nextuid=1
 		self.list=[]
 		self.byuid={}
+	def resetforbuild(self):
+		for ch in self.list: ch.resetforbuild()
 	def add(self,uid,ch):
 		if uid<0:
 			uid=self.nextuid
@@ -498,23 +520,22 @@ class Chapters():
 			if ch.uid==uid:
 				self.list.pop(idx)
 				break
-	def findpages(self,pages):
+	def findregions(self,regions):
 		if not self.list: return
-		pagesbycap={}
+		regionsbycap={}
+		for r in regions:
+			cap=r.resizecap.cap
+			a=regionsbycap.get(cap.index,None)
+			if a==None: regionsbycap[cap.index]=[r]
+			else: a.append(r)
+		for ch in self.list:
+			r=ch.findregion(regionsbycap)
+			r.addchapter(ch)
+	def fixpages(self,pages):
 		pagecount=len(pages)
 		for i,p in enumerate(pages):
 			p.position_book=i
 			p.pagecount_book=pagecount
-			for r in p.regions:
-				cap=r.resizecap.cap
-				a=pagesbycap.get(cap.index,None)
-				if a==None: pagesbycap[cap.index]=[p]
-				else: a.append(p)
-		ret=[]
-		for ch in self.list:
-			p=ch.findpage(pagesbycap)
-			ret.append(ChapterPlus(ch,p))
-			p.chapter=ch # if more than one, we store the last chapter
 		ch=None
 		idx=0
 		for p in pages:
@@ -525,14 +546,13 @@ class Chapters():
 				p.chapter=ch
 				idx+=1
 			p.position_chapter=idx
-		ch=None
+		ch=-1
 		count=0
 		for p in reversed(pages):
 			if p.chapter!=ch:
 				ch=p.chapter
 				count=p.position_chapter+1
 			p.pagecount_chapter=count
-		return ret
 
 class ScaleImage():
 	def __init__(self,inwidth,inheight,outwidth,outheight):
@@ -642,8 +662,6 @@ class ResizeCap():
 		self.trimbottom=0
 		self.scalewidth=inwidth
 		self.scaleheight=inheight
-		self.ttrim=0
-		self.btrim=0
 		if self.outheight!=None:
 			inportrait=True if inheight > inwidth else False
 			outportrait=True if self.outheight > self.outwidth else False
@@ -720,71 +738,13 @@ class ResizeCap():
 			for _ in range(self.padbottom): outpgm.rows.append(r)
 		if self.isrotate:
 			outpgm=outpgm.counter_rotate()
-		if self.ttrim:
-			outpgm.height-=self.ttrim
-			outpgm.rows=outpgm.rows[self.ttrim:]
-		if self.btrim: outpgm.height-=self.btrim
-		return outpgm
-	def tbtrim_makepgm(self,inpgm):
-		outpgm=self.makepgm(inpgm)
-
-		one=outpgm.rows[0][:1]*outpgm.width
-		for count,r in enumerate(outpgm.rows):
-			if r!=one: break
-		else:
-			self.ttrim=outpgm.height
-			return PGM(0,0,None)
-		
-		outpgm.rows=outpgm.rows[count:]
-		outpgm.height-=count
-		self.ttrim=count
-
-		one=outpgm.rows[-1][:1]*outpgm.width
-		for count,r in enumerate(reversed(outpgm.rows)):
-			if r!=one: break
-		else:
-			self.btrim=outpgm.height
-			return PGM(0,0,None)
-		outpgm.height-=count
-		self.btrim=count
 		return outpgm
 	def getoutputoffset(self,offset):
 		if self.isrotate: raise ValueError
-		offset=int(offset*(self.scaleheight/self.inheight))
-		offset-=self.ttrim
+		offset=int((offset*self.scaleheight)/self.inheight)
 		offset-=self.trimtop
 		offset+=self.padtop
 		return offset
-
-class Region():
-	def __init__(self,resizecap,offset,height):
-		(self.resizecap,self.offset,self.height)=(resizecap,offset,height)
-	def isblank(self,pgm):
-		if not self.height: return True
-		row=pgm.rows[self.offset]
-		one=row[:1]*pgm.width
-		for r in pgm.rows:
-			if r!=one: return False
-		return True
-	def augment(self,cappgm,pagepgm):
-		for r in cappgm.rows[self.offset:self.offset+self.height]: pagepgm.rows.append(r)
-		pagepgm.height+=self.height
-	def hasoriginaloffset(self,origoff):
-		topcrop=self.resizecap.cap.get_top_crop()
-		origoff-=topcrop
-		if origoff<0: origoff=0
-		newoff=self.resizecap.getoutputoffset(origoff)
-		if newoff<self.offset or newoff>self.offset+self.height: return False
-		return True
-
-class BlankRegion():
-	def __init__(self,resizecap,height,bgrow):
-		(self.resizecap,self.height,self.bgrow)=(resizecap,height,bgrow)
-	def isblank(self,ign): return True
-	def augment(self,ign,pagepgm):
-		for _ in range(self.height): pagepgm.rows.append(self.bgrow)
-		pagepgm.height+=self.height
-	def hasoriginaloffset(self,ign): return False
 
 class Page():
 	def __init__(self,fillheight,isstatus):
@@ -794,6 +754,7 @@ class Page():
 		self.fillleft=fillheight
 		self.isblank=True
 		self.index=None
+		self.chapterstarts=[]
 		self.chapter=None
 		self.position_book=None
 		self.pagecount_book=None
@@ -801,23 +762,31 @@ class Page():
 		self.pagecount_chapter=None
 		self.chunkoffset=None
 		self.chunksize=None
-	def addregion(self,region,pgm):
+	def addregion(self,region):
 		self.fill+=region.height
 		self.fillleft-=region.height
 		self.regions.append(region)
-		if self.isblank:
-			if not region.isblank(pgm): self.isblank=False
-	def drawstatus(self,pgm,height):
-		if not self.pagecount_chapter:
-			w=int((self.position_book*pgm.width)/self.pagecount_book)
+		if region.chapters:
+			self.isblank=False
+			self.chapterstarts.extend(region.chapters)
+			self.chapter=region.chapters[-1]
+			self.chapter.page=self
+		else:
+			self.isblank=self.isblank and region.isblank
+		region.page=self
+	def drawstatus(self,pgm,height,textlength):
+		if textlength>pgm.width: raise ValueError
+		if self.pagecount_chapter==None:
+			w=int(((self.position_book+1)*(pgm.width-textlength))/self.pagecount_book)
 			row=(b'\x00'*w)+(b'\xff'*(pgm.width-w))
 		else:
-			hw1=pgm.width>>1
-			hw2=pgm.width-hw1
-			w1=int((self.position_chapter*hw1)/self.pagecount_chapter)
-			w2=int((self.position_book*hw2)/self.pagecount_book)
-			row=(b'\x00'*w1)+(b'\xff'*(hw1-w1))+(b'\x00'*w2)+(b'\xff'*(hw2-w2))
-		for _ in range(height): pgm.rows.append(row)
+			pwmtl=pgm.width-textlength
+			hw1=pwmtl>>1
+			hw2=pwmtl-hw1
+			w1=int(((self.position_chapter+1)*hw1)/self.pagecount_chapter)
+			w2=int(((self.position_book+1)*hw2)/self.pagecount_book)
+			row=(b'\x00'*w1)+(b'\xff'*(hw1-w1))+(b'\x00'*w2)+(b'\xff'*(hw2-w2+textlength))
+		for _ in range(height): pgm.rows.append(bytearray(row))
 		pgm.height+=height
 
 class RLE():
@@ -965,6 +934,10 @@ class RLEXtg(Xtg):
 		return data
 
 class Xth():
+	whiterow792=b'\xff'*792
+	whiterow99=b'\x00'*99
+	whiterow800=b'\xff'*800
+	whiterow100=b'\x00'*100
 	@classmethod
 	def writetofile(parent,pgm,fout):
 		xth=parent(pgm.width,pgm.height)
@@ -981,56 +954,58 @@ class Xth():
 		wb=width>>3
 	def loadpgm(self,pgm):
 		width=pgm.width
+		if width==800:
+			whiterowlong=Xth.whiterow800
+			whiterowshort=Xth.whiterow100
+		elif width==792:
+			whiterowlong=Xth.whiterow792
+			whiterowshort=Xth.whiterow99
 		if len(pgm.rows)!=self.height: raise ValueError('PGM should have %s rows but it has %s instead'%(self.height,len(pgm.rows)))
 		for row in pgm.rows:
+			if row==whiterowlong:
+				self.plane1.append(whiterowshort)
+				self.plane2.append(whiterowshort)
+				continue
 			ba1=bytearray()
 			self.plane1.append(ba1)
 			ba2=bytearray()
 			self.plane2.append(ba2)
 			for x in range(0,width,8):
-				s=row[x:x+8]
 				b1=0
 				b2=0
-				c=s[0]
-				if c>192: pass
-				elif c>128: b1=128
-				elif c>64: b2=128
-				else: b1=128 ; b2=128
-				c=s[1]
-				if c>192: pass
-				elif c>128: b1|=64
-				elif c>64: b2|=64
-				else: b1|=64 ; b2|=64
-				c=s[2]
-				if c>192: pass
-				elif c>128: b1|=32
-				elif c>64: b2|=32
-				else: b1|=32 ; b2|=32
-				c=s[3]
-				if c>192: pass
-				elif c>128: b1|=16
-				elif c>64: b2|=16
-				else: b1|=16 ; b2|=16
-				c=s[4]
-				if c>192: pass
-				elif c>128: b1|=8
-				elif c>64: b2|=8
-				else: b1|=8 ; b2|=8
-				c=s[5]
-				if c>192: pass
-				elif c>128: b1|=4
-				elif c>64: b2|=4
-				else: b1|=4 ; b2|=4
-				c=s[6]
-				if c>192: pass
-				elif c>128: b1|=2
-				elif c>64: b2|=2
-				else: b1|=2 ; b2|=2
-				c=s[7]
-				if c>192: pass
-				elif c>128: b1|=1
-				elif c>64: b2|=1
-				else: b1|=1 ; b2|=1
+				(c0,c1,c2,c3,c4,c5,c6,c7)=row[x:x+8]
+				if c0>192: pass
+				elif c0<64: b1=128 ; b2=128
+				elif c0>128: b1=128
+				else: b2=128
+				if c1>192: pass
+				elif c1<64: b1|=64 ; b2|=64
+				elif c1>128: b1|=64
+				else: b2|=64
+				if c2>192: pass
+				elif c2<64: b1|=32 ; b2|=32
+				elif c2>128: b1|=32
+				else: b2|=32
+				if c3>192: pass
+				elif c3<64: b1|=16 ; b2|=16
+				elif c3>128: b1|=16
+				else: b2|=16
+				if c4>192: pass
+				elif c4<64: b1|=8 ; b2|=8
+				elif c4>128: b1|=8
+				else: b2|=8
+				if c5>192: pass
+				elif c5<64: b1|=4 ; b2|=4
+				elif c5>128: b1|=4
+				else: b2|=4
+				if c6>192: pass
+				elif c6<64: b1|=2 ; b2|=2
+				elif c6>128: b1|=2
+				else: b2|=2
+				if c7>192: pass
+				elif c7<64: b1|=1 ; b2|=1
+				elif c7>128: b1|=1
+				else: b2|=1
 				ba1.append(b1)
 				ba2.append(b2)
 	def tobytes(self):
@@ -1072,20 +1047,135 @@ class RLEXth(Xth):
 		data[9]=114 # r
 		return data
 
-class Builder():
-	def get_lastsolid(pgm,offset,limit):
-		for i in range(limit):
-			one=pgm.rows[offset-i][:1]*pgm.width
-			if pgm.rows[offset-i]==one: return i
+class CapRegion():
+	def __init__(self,isblank,height,resizecap,isfullpage,offset,blankrow,isstatus):
+		(self.isblank,self.height,self.resizecap,self.isfullpage,self.offset,self.blankrow,self.isstatus)=(isblank,height,resizecap,isfullpage,offset,blankrow,isstatus)
+		self.ispagestart=False
+		self.ispageend=False
+		self.ispagejoin=False # isblank end + isblank start
+		self.isnewpagestart=False
+		self.chapters=[]
+		self.page=None
+	def hasoriginaloffset(self,origoff):
+		if self.isfullpage: return True
+		topcrop=self.resizecap.cap.get_top_crop()
+		origoff-=topcrop
+		if origoff<0: origoff=0
+		newoff=self.resizecap.getoutputoffset(origoff)
+		if newoff<self.offset or newoff>self.offset+self.height: return False
+		return True
+	def addchapter(self,ch):
+		self.isnewpagestart=True
+		self.chapters.append(ch)
+	def clone(self,offset,height):
+		ret=CapRegion(self.isblank,height,self.resizecap,self.isfullpage,offset,self.blankrow,self.isstatus)
+		(ret.ispagestart,ret.ispageend,ret.ispagejoin,ret.isnewpagestart)=(self.ispagestart,self.ispageend,self.ispagejoin,self.isnewpagestart)
+		return ret
+	def augment(self,cappgm,pagepgm):
+		if self.isblank:
+			for _ in range(self.height): pagepgm.rows.append(bytearray(self.blankrow))
 		else:
-			return -1
+			for i in range(self.offset,self.offset+self.height): pagepgm.rows.append(bytearray(cappgm.rows[i]))
+		pagepgm.height+=self.height
+
+class BlankCapRegion(CapRegion):
+	def __init__(self,height,resizecap,offset,blankrow):
+		super().__init__(True,height,resizecap,False,offset,blankrow,True)
+
+class FullCapRegion(CapRegion):
+	def __init__(self,height,resizecap,isstatus):
+		super().__init__(False,height,resizecap,True,0,None,isstatus)
+
+class TearCapRegion(CapRegion):
+	def __init__(self,height,resizecap,offset):
+		super().__init__(False,height,resizecap,False,offset,None,True)
+
+class CapRegions():
+	def __init__(self):
+		self.prelist=[]
+		self.list=[]
+	def finish(self,halflinespacing):
+		if not self.prelist: return
+		region=self.prelist[0]
+		region.ispagestart=True
+		lastregion=region
+		lastcap=region.resizecap.cap
+		self.list.append(region)
+		for region in self.prelist[1:]:
+			cap=region.resizecap.cap
+			if cap!=lastcap:
+				if lastregion.isblank and region.isblank and lastregion.blankrow==region.blankrow:
+					lastregion.ispagejoin=True
+					lastregion.height+=region.height # merge
+					continue
+				lastregion.ispageend=True
+				region.ispagestart=True
+			else:
+				if lastregion.isblank and not region.isblank and lastregion.height<halflinespacing and len(self.list)>1:
+					twoago=self.list[-2]
+					if twoago.resizecap.cap==cap and not twoago.isblank:
+						twoago.height+=lastregion.height+region.height # merge all three
+						self.list.pop()
+						lastregion=twoago
+						continue
+			self.list.append(region)
+			lastregion=region
+			lastcap=cap
+		lastregion.ispageend=True					
+	def add(self,region): self.prelist.append(region)
+	def findprevioustear(self,index):
+		for cap in reversed(self.list[:index]):
+			if cap.isblank: continue
+			if cap.isfullpage: return None
+			return cap
+	def findnexttear(self,index):
+		for cap in self.list[index+1:]:
+			if cap.isblank: continue
+			if cap.isfullpage: return None
+			return cap
+
+class Font19():
+	def zdbsb(a): return zlib.decompress(base64.standard_b64decode(a))
+	CHAR_0=zdbsb(b'eJxdjkESwCAMAl/JJ/nkVkHTTjngyhgMgJeIrMgHvW1xE3JJUPbEcuN9qDP08Ts/zOXWqlX6VRHqD55NOjSxYr7+3Z8JeQCaW5ln')
+	CHAR_1=zdbsb(b'eJz7/x8IVv2HglWhoaFwBoQJpFatgomCJZAUDywzFAZW/V8FA/8Becymrw==')
+	CHAR_2=zdbsb(b'eJydjjEOADAIAl/JJ/kkpWIahw5NbzrUECWJRgUCox4nIGsnHR583qM70nxRfuv+s8CAgwUD/rBQ')
+	CHAR_3=zdbsb(b'eJyFj8ENACAIA6d0yVuyWhvRmBj74QqkoiQxJIsW2blATKZuqfRgNi9MpjZTG5zuzuTHfoDm22dQnZ8N9/KvDgA7r1E=')
+	CHAR_4=zdbsb(b'eJxtz8ENACAIA8Apu2SXRFoFfNCHnoQoRjhkVAj0AePUZiDK2stZLvuKa6r8bF6/Rm/ZrehhLR1y6j3oP/Ruf+wAFXuuUg==')
+	CHAR_5=zdbsb(b'eJyFjsENADAIAqdkSZakVYmpD1NeF0IAiZYkwuLD10/DSuPPVZjcNZ7CjK4dXLiRsQP6LMf9GAPqxAHMmaz+')
+	CHAR_6=zdbsb(b'eJxdjtEVwDAIAqdkSZakKsU28SNBHqdKXawaIUx1w/5f344uWXolD5umrZGZ/ToLIewEuOQ3MndsKIugHyvTNJhdG53zHzHfplo=')
+	CHAR_7=zdbsb(b'eJxbtQoBQnGA/zCwKnQVnI0iHEpYGKtOHMLUMXAVjAkAls+38w==')
+	CHAR_8=zdbsb(b'eJxlTcERwCAMmpIlWZJqQK6ePBQCIZLEBQ2IAU33fARw3HK9nM0sgTwWMS++fyJxxsy+Z93ir4FjNJMrLTKcPAUf0QegtQ==')
+	CHAR_9=zdbsb(b'eJxVj1sSACAIAk/pJbkkKT7zo5yFYCJJ+FBjOcgVRJ9S405ReuMQdlfGcDv+eSwHukvuv6gyuZEH28HYnklu6rC+9QAUfaav')
+	CHAR_SPACE=b'\xff'*19*3
+	charlookup={'0':CHAR_0,'1':CHAR_1,'2':CHAR_2,'3':CHAR_3,'4':CHAR_4,'5':CHAR_5,'6':CHAR_6,'7':CHAR_7, '8':CHAR_8,'9':CHAR_9,' ':CHAR_SPACE}
+	def getstringlength(text):
+		ret=0
+		for c in text:
+			bmp=Font19.charlookup[c]
+			ret+=len(bmp)
+		return int(ret/19)
+	def drawchar(pgm,c,x,y):
+		bmp=Font19.charlookup[c]
+		width=int(len(bmp)/19)
+		xpw=x+width
+		cursor=0
+		for y in range(y,y+19):
+			row=pgm.rows[y]
+			for i in range(width):
+				row[x+i]=min(row[x+i],bmp[cursor+i])
+			cursor+=width
+		return width
+	def drawstring(pgm,text,x,y):
+		for c in text:
+			x+=Font19.drawchar(pgm,c,x,y)
+
+class Builder():
 	def __init__(self):
 		self.encoder=None
 		self.outputdir=None
 		self.caps=None
 		self.caplimit=None
 		self.chapters=None
-		self.chapterpluslist=None
 		self.vars={}
 		self.outputfilename=None
 		self.fout=None
@@ -1102,21 +1192,23 @@ class Builder():
 		self.bottommargin=None
 		self.topmargin=None
 		self.issinister=False
+		self.capregions=CapRegions()
 		self.pages=[]
 		self.pagecount=None
 		self.pageindex=0
 		self.capindex=0
 		self.cap=None
-		self.rcap=None
 		self.cappgm=None
-		self.capoffset=None
-		self.capleft=None
+		self.rcap=None
+		self.rcappgm=None
 		self.page=None
 		self.pagepgm=None
 		self.regionindex=None
 		self.headersize=None
 	def start(self,outputdir,caps,chapters,d):
 		(self.outputdir,self.caps,self.chapters,self.vars)=(outputdir,caps,chapters,d)
+
+		self.chapters.resetforbuild()
 		if self.vars['bitdepth']==1: extension='xtc'
 		elif self.vars['bitdepth']==2: extension='xtch'
 		else: raise ValueError
@@ -1159,7 +1251,7 @@ class Builder():
 			self.height_status=3
 			self.fillheight=self.pageheight-(self.topmargin+self.toppad_status+self.bottompad_status+self.height_status)
 		self.pageoverlap=self.vars['pageoverlap']
-		if self.pageoverlap*2 > self.pageheight: raise ValueError # avoids an inf loop if overlap is too large
+		if self.pageoverlap*2 >= self.pageheight: raise ValueError # avoids an inf loop if overlap is too large
 		self.linespacing=self.vars['linespacing']
 		self.bgrow=self.bg*self.pagewidth
 		if self.vars['bitdepth']==1:
@@ -1180,7 +1272,7 @@ class Builder():
 			a.append(p)
 		self.pages=a
 		self.pagecount=len(a)
-		self.chapterpluslist=self.chapters.findpages(a)
+		self.chapters.fixpages(a)
 	def step_walkpages(self):
 		if self.pageindex==self.pagecount:
 			self.writeheaders()
@@ -1194,17 +1286,21 @@ class Builder():
 			self.regionindex=0
 		if self.regionindex==len(self.page.regions):
 			if self.pagepgm.height<self.fillheight:
-				for _ in range(self.pagepgm.height,self.fillheight): self.pagepgm.rows.append(self.bgrow)
+				for _ in range(self.pagepgm.height,self.fillheight): self.pagepgm.rows.append(bytearray(self.bgrow))
 				self.pagepgm.height=self.fillheight
 			if self.topmargin and self.pagepgm.height+self.topmargin<=self.pageheight:
-				for _ in range(self.topmargin): self.pagepgm.rows.insert(0,self.bgrow)
+				for _ in range(self.topmargin): self.pagepgm.rows.insert(0,bytearray(self.bgrow))
 				self.pagepgm.height+=self.topmargin
 			if self.page.isstatus and self.height_status:
-				for _ in range(self.toppad_status): self.pagepgm.rows.append(self.bgrow)
+				textlen=0
+				pagestr='  %s   '%(self.page.position_book+1)
+				textlen=Font19.getstringlength(pagestr)
+				for _ in range(self.toppad_status): self.pagepgm.rows.append(bytearray(self.bgrow))
 				self.pagepgm.height+=self.toppad_status
-				self.page.drawstatus(self.pagepgm,self.height_status)
-				for _ in range(self.bottompad_status): self.pagepgm.rows.append(self.bgrow)
+				self.page.drawstatus(self.pagepgm,self.height_status,textlen)
+				for _ in range(self.bottompad_status): self.pagepgm.rows.append(bytearray(self.bgrow))
 				self.pagepgm.height+=self.bottompad_status
+				Font19.drawstring(self.pagepgm,pagestr,self.pagepgm.width-textlen,self.pagepgm.height-self.bottompad_status-19)
 			if self.issinister: self.pagepgm.reverse()
 			size=self.encoder.writetofile(self.pagepgm,self.fout)
 			self.page.chunkoffset=self.fileoffset
@@ -1260,19 +1356,103 @@ class Builder():
 		metadata[240:248]=struct.pack('<IHH',int(time.time()),0,len(self.chapters.list))
 		if len(metadata)!=256: raise ValueError
 		self.fout.write(metadata)
-		if len(self.chapterpluslist)!=len(self.chapters.list): raise ValueError
-		for chp in self.chapterpluslist:
+		for ch in self.chapters.list:
 			ba=bytearray(96)
-			s=chp.chapter.text.encode()[:80]
+			s=ch.text.encode()[:80]
 			ba[:len(s)]=s
-			ba[80:84]=struct.pack('<HH',chp.page.position_book+1,chp.page.position_book+chp.page.pagecount_chapter) # TODO verify offsets
+			ba[80:84]=struct.pack('<HH',ch.page.position_book+1,ch.page.position_book+ch.page.pagecount_chapter)
 			self.fout.write(ba)
 		for p in self.pages:
 			entry=struct.pack('<QIHH',p.chunkoffset,p.chunksize,self.pageheight,self.pagewidth)
 			self.fout.write(entry)
 		print('wrote headers')
+	def buildpages(self):
+		self.chapters.findregions(self.capregions.list)
+		for region in self.capregions.list:
+			if not region.isblank: continue
+			if region.ispagejoin or region.ispagestart or region.ispageend:
+				region.height=self.linespacing
+		lineheight=self.pageoverlap
+		exs=self.vars['excessivespace']
+		exc=self.vars['excessivecut']
+		if exs and exc and exs>=exc:
+			if lineheight>exs:
+				for region in self.capregions.list:
+					if not region.isblank: continue
+					if region.height>lineheight: region.height=self.linespacing
+					elif region.height>exs: region.height-=exc
+			else:
+				for region in self.capregions.list:
+					if not region.isblank: continue
+					if region.height>exs: region.height-=exc
+		else:
+			for region in self.capregions.list:
+				if not region.isblank: continue
+				if region.height>lineheight: region.height=self.linespacing
+		pageoverlapx2=self.pageoverlap*2
+		fillheightd2=self.fillheight>>1
+		page=None
+		capregionindex=0
+		capregionlimit=len(self.capregions.list)
+		capregion=None
+		regionoffset=None
+		regionleft=None
+		while True:
+			if capregionindex==capregionlimit: break
+			if not capregion:
+				capregion=self.capregions.list[capregionindex]
+				if capregion.isnewpagestart: page=None
+				regionoffset=capregion.offset
+				regionleft=capregion.height
+			if not regionleft:
+				capregion=None ; capregionindex+=1
+				continue
+			if capregion.isfullpage:
+				page=Page(self.pageheight,capregion.isstatus)
+				page.addregion(capregion)
+				self.pages.append(page)
+				page=None
+				capregion=None ; capregionindex+=1
+				continue
+			if not page or not page.fillleft:
+				page=Page(self.fillheight,True)
+				self.pages.append(page)
+				if capregion.isblank:
+					capregion=None ; capregionindex+=1
+					continue
+			if regionleft<=page.fillleft:
+				page.addregion(capregion)
+				capregion=None ; capregionindex+=1
+				continue
+			if page.fillleft<=self.pageoverlap:
+				page=None
+				continue
+			if capregion.isblank:
+				page=None
+				capregion=None ; capregionindex+=1
+				continue
+			if page.fill:
+				if regionleft<=pageoverlapx2: # a small convenience
+					page=None
+					continue
+				if regionleft>fillheightd2: # try to start in-line illustrations on a new page
+					lastregion=self.capregions.findprevioustear(capregionindex)
+					nextregion=self.capregions.findnexttear(capregionindex)
+					if lastregion and nextregion and lastregion.height<pageoverlapx2 and nextregion.height<pageoverlapx2:
+						page=None
+						continue
+			region=capregion.clone(regionoffset,page.fillleft)
+			shift=page.fillleft-self.pageoverlap
+			capregion=capregion.clone(regionoffset+shift,capregion.height-shift)
+			regionoffset+=shift
+			regionleft-=shift
+			page.addregion(region)
+			page=None
+			
 	def step_walkcaps(self):
 		if self.capindex==self.caplimit:
+			self.capregions.finish(self.linespacing>>1)
+			self.buildpages()
 			self.prunepages()
 			self.countheaders()
 			self.fout.write(b'\x00'*self.headersize)
@@ -1282,9 +1462,7 @@ class Builder():
 		if not self.cap or self.cap.index!=self.caps.sorted_byindex[self.capindex]:
 			self.cap=self.caps.byindex[self.caps.sorted_byindex[self.capindex]]
 			self.rcap=None
-			self.cappgm=None
-			self.capoffset=None
-			self.capleft=None
+			self.rcappgm=None
 		cap=self.cap
 		if not self.rcap:
 			if cap.fullscreen_mode==1: # omit
@@ -1294,59 +1472,61 @@ class Builder():
 			if cap.fullscreen_mode==2: # full scale
 				(cappgm,topcrop,bottomcrop,leftcrop,rightcrop)=cap.getpgm()
 				rc=ResizeCap(cap,cappgm.width,cappgm.height,self.pagewidth,self.pageheight,self.bg)
-				cappgm2=rc.makepgm(cappgm)
-				page=Page(self.pageheight,False)
-				self.pages.append(page)
-				region=Region(rc,0,self.pageheight)
-				page.addregion(region,cappgm2)
+				region=FullCapRegion(self.pageheight,rc,False)
+				self.capregions.add(region)
 				self.capindex+=1
 				return cappgm
 			if cap.fullscreen_mode==3: # full scale with status
 				(cappgm,topcrop,bottomcrop,leftcrop,rightcrop)=cap.getpgm()
 				rc=ResizeCap(cap,cappgm.width,cappgm.height,self.pagewidth,self.fillheight,self.bg)
-				cappgm=rc.makepgm(cappgm)
-				page=Page(self.fillheight,True)
-				self.pages.append(page)
-				region=Region(rc,0,self.fillheight)
-				page.addregion(region,cappgm)
+				region=FullCapRegion(self.fillheight,rc,True)
+				self.capregions.add(region)
 				self.capindex+=1
 				return cappgm
 #			if cap.fullscreen_mode: raise ValueError
 			(cappgm,topcrop,bottomcrop,leftcrop,rightcrop)=cap.getpgm()
+			self.cappgm=cappgm
 			self.rcap=ResizeCap(cap,cappgm.width,cappgm.height,self.pagewidth,None,self.bg)
-			self.cappgm=self.rcap.tbtrim_makepgm(cappgm)
-			self.capoffset=0
-			self.capleft=self.cappgm.height
-			return self.cappgm
-		if not self.capleft:
-			self.capindex+=1
+			if not self.rcap.outheight:
+				self.capindex+=1
+				return
 			return
-		if not self.page:
-			self.page=Page(self.fillheight,True)
-			self.pages.append(self.page)
-		if self.page.fillleft < self.pageoverlap:
-			self.page=None
-			return
-		if self.capleft<=self.page.fillleft:
-			region=Region(self.rcap,self.capoffset,self.capleft)
-			self.page.addregion(region,self.cappgm)
-			self.capindex+=1
-			if self.page.fillleft>self.linespacing:
-				region=BlankRegion(self.rcap,self.linespacing,self.bgrow)
-				self.page.addregion(region,None)
-			return
-		lastsolid=Builder.get_lastsolid(self.cappgm,self.capoffset+self.page.fillleft-1,self.pageoverlap)
-		if lastsolid<0:
-			count=self.page.fillleft-self.pageoverlap
-			region=Region(self.rcap,self.capoffset,self.page.fillleft)
-		else:
-			count=self.page.fillleft-lastsolid
-			region=Region(self.rcap,self.capoffset,count)
-		self.page.addregion(region,self.cappgm)
-		self.capoffset+=count
-		self.capleft-=count
-		self.page=None
-		return
+
+		if not self.rcappgm:
+			self.rcappgm=self.rcap.makepgm(self.cappgm)
+			return self.rcappgm
+
+		pgm=self.rcappgm
+		start=0
+		cursor=0
+		while True:
+			one=bytes(pgm.rows[cursor][:1])*pgm.width
+			for cursor in range(cursor,pgm.height):
+				if one!=pgm.rows[cursor]: break
+			else:
+				region=BlankCapRegion(cursor-start,self.rcap,start,one)
+				self.capregions.add(region)
+				self.capindex+=1
+				return
+			blankheight=cursor-start
+			if blankheight:
+				region=BlankCapRegion(blankheight,self.rcap,start,one)
+				self.capregions.add(region)
+				start=cursor
+				continue
+			cursor+=1
+			for cursor in range(cursor,pgm.height):
+				one=bytes(pgm.rows[cursor][:1])*pgm.width
+				if one==pgm.rows[cursor]: break
+			else:
+				region=TearCapRegion(cursor-start,self.rcap,start)
+				self.capregions.add(region)
+				self.capindex+=1
+				return
+			region=TearCapRegion(cursor-start,self.rcap,start)
+			self.capregions.add(region)
+			start=cursor
+			cursor+=1
 
 class ChapterSearch():
 	def __init__(self,margin,cap):
@@ -1355,10 +1535,10 @@ class ChapterSearch():
 	def step(self):
 		self.cap=self.cap.next
 		if not self.cap: return (True,None)
-		pnm=self.cap.getbarepgm()
+		pgm=self.cap.getbarepgm()
 		crop=self.cap.get_top_crop()
-		rows=pnm.rows[crop:]
-		one=rows[0][:1]*pnm.width
+		rows=pgm.rows[crop:]
+		one=bytes(rows[0][:1])*pgm.width
 		count=0
 		for row in rows:
 			if row!=one: break
@@ -1382,8 +1562,10 @@ class CLIBuild():
 		self.toppad_status=1
 		self.bottompad_status=4
 		self.capdefaults=CapDefaults()
-		self.pageoverlap=40
+		self.pageoverlap=48
 		self.linespacing=16
+		self.excessivespace=None
+		self.excessivecut=None
 		self.bottommargin=4
 		self.topmargin=8
 		self.resolution='528x792'
@@ -1442,6 +1624,8 @@ class CLIBuild():
 				elif key=='bottommargin': self.bottommargin=value
 				elif key=='topmargin': self.topmargin=value
 				elif key=='linespacing': self.linespacing=value
+				elif key=='excessivespace': self.excessivespace=value
+				elif key=='excessivecut': self.excessivecut=value
 				elif key=='resolution':
 					if value in ('528x792','480x800'): self.resolution=value
 					else: raise ValueError
@@ -1471,6 +1655,7 @@ class CLIBuild():
 		d={}
 		names=('title_book','author_book','publisher_book','language_book','filenameformat','pagedecorations',
 				'toppad_status','bottompad_status','capdefaults','pageoverlap','bottommargin','topmargin','linespacing',
+				'excessivespace','excessivecut',
 				'resolution','bitdepth','compression','sinister')
 		for n in names: d[n]=getattr(self,n)
 		self.builder.start(self.outputdir,self.caps,self.chapters,d)
@@ -1490,9 +1675,7 @@ class CLIBuild():
 			ret=self.builder.step_walkcaps()
 			if ret==True: break
 			if ret!=None:
-				capcount+=1
-				print('Caps: %s\r'%capcount,end='',flush=True)
-		print()
+				print('\rCaps: %s '%(self.builder.capindex),end='',flush=True)
 	def walkpages(self):
 		capcount=0
 		pagecount=0
@@ -1504,8 +1687,7 @@ class CLIBuild():
 				break
 			if cappgm: capcount+=1
 			if pagepgm: pagecount+=1
-			print('Caps: %s, Pages: %s\r'%(capcount,pagecount),end='',flush=True)
-		print()
+			print('\rCaps: %s, Pages: %s '%(capcount,pagecount),end='',flush=True)
 
 class Application(tk.Frame):
 	def __init__(self,master=None,inputdir=None,outputdir=None,configfile=None,imagewidth=400,imageheight=600):
@@ -1549,6 +1731,7 @@ class Application(tk.Frame):
 		f=open(savefilename,'w')
 		globalnames=('inputdir','outputdir','title_book','author_book','publisher_book','language_book','filenameformat',
 				'pagedecorations','toppad_status','bottompad_status','pageoverlap','bottommargin','topmargin','linespacing',
+				'excessivespace','excessivecut',
 				'resolution','bitdepth','compression','sinister','chaptermargin')
 		capdefnames=('top_crop','bottom_crop','left_crop','right_crop','fullscreen_mode')
 		for n in globalnames:
@@ -2004,6 +2187,8 @@ class Application(tk.Frame):
 		try:
 			self.pageoverlap=int(step.pageoverlap_field.get())
 			self.linespacing=int(step.linespacing_field.get())
+			self.excessivespace=int(step.excessivespace_field.get())
+			self.excessivecut=int(step.excessivecut_field.get())
 			self.chaptermargin=int(step.chaptermargin_field.get())
 		except ValueError: return
 		self.saveconfig()
@@ -2016,6 +2201,8 @@ class Application(tk.Frame):
 		step=self.steps[5]
 		step.pageoverlap_field=tk.StringVar(value=str(self.pageoverlap))
 		step.linespacing_field=tk.StringVar(value=str(self.linespacing))
+		step.excessivespace_field=tk.StringVar(value=str(self.excessivespace or 0))
+		step.excessivecut_field=tk.StringVar(value=str(self.excessivecut or 0))
 		step.chaptermargin_field=tk.StringVar(value=str(self.chaptermargin))
 		for w in self.frame_right.winfo_children(): w.destroy()
 		self.steptitle('Review Page Spacing')
@@ -2036,6 +2223,20 @@ class Application(tk.Frame):
 		entry.pack(side='left',pady=(10,0))
 		frame.pack(fill='x',padx=10)
 
+		label=tk.Label(self.frame_right,text='How many consecutive blank rows in the input pages are too many?',bg='white',wraplength=400,justify='left',anchor='w')
+		label.pack(fill='x',pady=(10,0),padx=10)
+		frame=tk.Frame(self.frame_right,bg='white')
+		entry=tk.Entry(frame,textvariable=step.excessivespace_field,width=3)
+		entry.pack(side='left',pady=(10,0))
+		frame.pack(fill='x',padx=10)
+
+		label=tk.Label(self.frame_right,text='How many blank rows should be removed if there are too many?',bg='white',wraplength=400,justify='left',anchor='w')
+		label.pack(fill='x',pady=(10,0),padx=10)
+		frame=tk.Frame(self.frame_right,bg='white')
+		entry=tk.Entry(frame,textvariable=step.excessivecut_field,width=3)
+		entry.pack(side='left',pady=(10,0))
+		frame.pack(fill='x',padx=10)
+
 		label=tk.Label(self.frame_right,text='How many blank rows (after cropping) at the top of a page should trigger the chapter search? This will not affect the output file.',bg='white',wraplength=400,justify='left',anchor='w')
 		label.pack(fill='x',pady=(10,0),padx=10)
 		frame=tk.Frame(self.frame_right,bg='white')
@@ -2050,7 +2251,9 @@ class Application(tk.Frame):
 	def chapterselect(self,a=None):
 		step=self.steps[6]
 		if a==None:
-			(idx,)=step.listbox.curselection()
+			sel=step.listbox.curselection()
+			if not sel: return
+			(idx,)=sel
 			a=step.listbox.get(idx)
 		idx=a.find(':')
 		if idx<0:
