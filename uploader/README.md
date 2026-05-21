@@ -63,3 +63,12 @@ xteuploader.py 192.168.1.214 upload /tmp/DombeyAndSon.xtch Dickens dombey.xtch
 By default, xteuploader.py will print the progress of the upload, using my http
 upload code. My X3 is not fast, and can take several minutes to upload a large
 book.
+
+## Making directories
+
+You can use "xteuploader.py (HOSTNAME) mkdir (DEVICE\_DIRECTORY)" to create a new directory on the device.
+
+E.g.:
+```
+xteuploader.py 192.168.1.214 mkdir Dickens
+```

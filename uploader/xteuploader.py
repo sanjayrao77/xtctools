@@ -43,7 +43,7 @@ def postfile(basicauth,hostname,uri,filename,fin):
 	request1lines=[]
 	request1lines.append('--76a9ef5fc9c1a0bcdcb0bb35488bf645')
 	request1lines.append('Content-Disposition: form-data; name="data"; filename="'+filename+'"')
-	request1lines.append('Content-Type: text/plain')
+#	request1lines.append('Content-Type: text/plain')
 	request1lines.extend(('',''))
 	request1='\r\n'.join(request1lines).encode()
 	request3='\r\n--76a9ef5fc9c1a0bcdcb0bb35488bf645--\r\n'.encode()
@@ -76,6 +76,7 @@ def postfile(basicauth,hostname,uri,filename,fin):
 		if not d: break
 		print('Received',len(d),'byte reply')
 		fullreply.extend(d)
+		print('fullreply',fullreply)
 	fullreply=fullreply.decode()
 	lines=fullreply.split('\r\n')
 	if not len(lines): raise ValueError
@@ -91,6 +92,57 @@ def postfile(basicauth,hostname,uri,filename,fin):
 		replyheaders.append(line)
 	httpreply='\r\n'.join(lines)
 	return HTTPReply(status,replyheaders,httpreply)
+
+def putvariable(basicauth,hostname,uri,varname,varvalue):
+	s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+	addrs=socket.getaddrinfo(hostname,80,family=socket.AF_INET,type=socket.SOCK_STREAM)
+	if not addrs: raise ValueError
+	addr=addrs[0][4]
+	print('Connecting to',addr)
+	s.connect(addr)
+	postlines=[]
+	postlines.append('--76a9ef5fc9c1a0bcdcb0bb35488bf645')
+	postlines.append('Content-Disposition: form-data; name="'+varname+'"')
+	postlines.append('')
+	postlines.append(varvalue)
+	postlines.append('--76a9ef5fc9c1a0bcdcb0bb35488bf645--')
+	post='\r\n'.join(postlines).encode()
+	requestheaders=[]
+	requestheaders.append('PUT '+urllib.parse.quote(uri)+' HTTP/1.0')
+	requestheaders.append('Host: '+hostname)
+	if basicauth:
+		b64=base64.standard_b64encode(basicauth.encode()).decode()
+		requestheaders.append('Authorization: Basic '+b64)
+	requestheaders.append('Content-Type: multipart/form-data; boundary=76a9ef5fc9c1a0bcdcb0bb35488bf645')
+	requestheaders.append('Content-Length: '+str(len(post)))
+	requestheaders.append('Connection: close')
+	requestheaders.extend(('',''))
+	request='\r\n'.join(requestheaders).encode()
+	s.sendall(request)
+	s.sendall(post)
+	fullreply=bytearray()
+	while True:
+		d=s.recv(1024)
+		if not d: break
+		print('Received',len(d),'byte reply')
+		fullreply.extend(d)
+		print('fullreply',fullreply)
+	fullreply=fullreply.decode()
+	lines=fullreply.split('\r\n')
+	if not len(lines): raise ValueError
+	statusline=lines.pop(0)
+	replyheaders=[]
+	if True:
+		if not statusline.startswith('HTTP'): raise ValueError
+		a=statusline.split(' ')
+		status=int(a[1])
+	while True:
+		line=lines.pop(0)
+		if not line: break
+		replyheaders.append(line)
+	httpreply='\r\n'.join(lines)
+	return HTTPReply(status,replyheaders,httpreply)
+
 
 class XteX3():
 	def __init__(self,hostname): self.hostname=hostname
@@ -124,6 +176,13 @@ class XteX3():
 			r=requests.post('http://%s/edit'%self.hostname,files=files)
 		if r.status_code!=200: raise ValueError
 		print(r.content)
+	def mkdir(self,outdir):
+		if not outdir: raise ValueError
+		elif not outdir.endswith('/'): outdir=outdir+'/'
+		if not outdir.startswith('/'): outdir='/'+outdir
+		r=putvariable(None,self.hostname,'/edit','path',outdir)
+		if r.status_code!=200: raise ValueError
+		print(r.content)
 
 isverbose=True
 ipv4=None
@@ -141,7 +200,8 @@ if not hostname:
 		hostname=input('Please enter the IP address given by the ereader, e.g. "192.168.1.214": ')
 
 if not args:
-	print('Usage: xteuploader.py %s ls [REMOTEDIR]'%hostname)
+	print('Usage: xteuploader.py %s ls [DEVICE_DIRECTORY]'%hostname)
+	print('Usage: xteuploader.py %s mkdir (DEVICE_DIRECTORY)'%hostname)
 	print('Usage: xteuploader.py %s upload (FILENAME) (DEVICE_DIRECTORY)'%hostname)
 	print('Usage: xteuploader.py %s upload (LOCAL_FILENAME) (DEVICE_DIRECTORY) (DEVICE_FILENAME)'%hostname)
 	print('No command given, doing an "ls /"')
@@ -165,6 +225,14 @@ while args:
 			rdir=args[0]
 			args=args[1:]
 		x.print_ls(rdir)
+	elif args[0]=='mkdir':
+		args=args[1:]
+		if not args:
+			print('Usage: xteuploader.py %s mkdir (DEVICE_DIRECTORY)'%hostname)
+			break
+		outdir=args[0]
+		args=args[1:]
+		x.mkdir(outdir)
 	elif args[0]=='upload':
 		if len(args)>=4:
 			x.upload(args[1],args[2],args[3],isverbose=isverbose)
