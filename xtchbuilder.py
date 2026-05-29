@@ -189,7 +189,7 @@ class PNG():
 					if value[off]!=0: raise ValueError('Unsupported PNG compression')
 					row=bytearray(stride)
 					cursor=0
-					for off in range(off+1,off+swp1):
+					for off in range(off+1,off+swp1): # enumerate(value[off+1:off+swp1]) is slightly faster
 						v=value[off]
 						row[cursor]=v ; cursor+=1
 						row[cursor]=v ; cursor+=1
@@ -736,6 +736,7 @@ class ResizeCap():
 			r=self.bg*outpgm.width
 			for _ in range(self.padtop): outpgm.rows.insert(0,r)
 			for _ in range(self.padbottom): outpgm.rows.append(r)
+			outpgm.height+=self.padtop+self.padbottom
 		if self.isrotate:
 			outpgm=outpgm.counter_rotate()
 		return outpgm
